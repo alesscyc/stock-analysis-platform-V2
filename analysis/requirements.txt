@@ -1,0 +1,5 @@
+yfinance>=0.2.65,<1
+pandas>=2.2,<3
+scikit-learn>=1.5,<2
+joblib>=1.4,<2
+curl-cffi>=0.7,<1

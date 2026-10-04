@@ -1,0 +1,13 @@
+node_modules/
+frontend/dist/
+analysis/.venv/
+analysis/.cache/
+.cache/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.log
+artifacts/
+.DS_Store
