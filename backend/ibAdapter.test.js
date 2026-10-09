@@ -89,6 +89,13 @@ class FakeIb extends EventEmitter {
   cancelOrder(orderId) { this.cancelled.push(orderId); }
 }
 
+// IB timeouts call unref so a live process can exit. node:test cancels a pending
+// promise once the loop is empty, so hold it until those waits settle.
+function holdLoop(promise) {
+  const holder = setTimeout(() => {}, 2 ** 31 - 1);
+  return promise.finally(() => clearTimeout(holder));
+}
+
 function setup(config = {}, fakeOptions = {}) {
   const fake = new FakeIb(fakeOptions);
   const adapter = new IbAdapter({
@@ -161,7 +168,7 @@ test('account-summary requests coalesce and cancel on completion and timeout', a
     assert.equal(fake.summaryCancellations.length, 1);
 
     fake.suppressSummaryEnd = true;
-    await assert.rejects(adapter._requestSummary(), /Timed out waiting for IB account summary/);
+    await assert.rejects(holdLoop(adapter._requestSummary()), /Timed out waiting for IB account summary/);
     assert.equal(fake.summaryRequests, 2);
     assert.equal(fake.summaryCancellations.length, 2);
   } finally { adapter.stop(); }
@@ -247,7 +254,7 @@ test('order snapshots preserve refs on timeout, separate empty refs, filter asse
       status: 'Submitted',
     });
     fake.suppressOpenOrderEnd = true;
-    await assert.rejects(adapter.listOrders(), /complete IB open-order snapshot/);
+    await assert.rejects(holdLoop(adapter.listOrders()), /complete IB open-order snapshot/);
     assert.deepEqual([...adapter.openOrderRefs], cachedRefs);
     assert.ok(adapter.ordersByRef.has('ib:60001'));
     assert.ok(adapter.ordersByRef.has('ib:60002'));
