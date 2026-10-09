@@ -29,7 +29,8 @@ This catalog describes implemented browser capabilities, not roadmap commitments
 
 - Candlestick and volume charts at daily, weekly, and monthly intervals.
 - 10-, 20-, 50-, 150-, and 200-period price moving averages, plus a 20-period volume average. Periods follow the selected bar interval; they are trading days only on daily charts.
-- Automatic swing zones and a shared Price Pattern indicator covering double bottoms, double tops, head-and-shoulders, and inverse head-and-shoulders.
+- Swing zones: gold outlined boxes for the latest 10 completed zones starting within the last 365 bars of the selected interval. A zone closes when a later high reaches at least 99% of its pivot high; its label shows the percentage rise from its lowest interior low to the pivot high, `(top - bottom) / bottom × 100%`. Zero-height zones remain hidden but count toward the 10-zone limit.
+- A shared Price Pattern indicator covering double bottoms, double tops, head-and-shoulders, and inverse head-and-shoulders.
 - Trend lines, horizontal lines, rays, rectangles, and price-range drawings saved per symbol.
 - Persistent visibility preferences for indicators.
 - Active-mode position/order lines, editable order-price previews, and backtest trade markers.

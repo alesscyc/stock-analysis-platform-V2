@@ -835,19 +835,41 @@ export default function StockChart({
             </clipPath>
           </defs>
           <g clipPath="url(#plot-clip)">
-            {zones.map((zone, i) => {
-              const top = candleRef.current?.priceToCoordinate(zone.upper),
-                bottom = candleRef.current?.priceToCoordinate(zone.lower);
-              return top == null || bottom == null ? null : (
-                <rect
-                  key={`zone-${i}`}
-                  x="0"
-                  y={top}
-                  width={width}
-                  height={Math.max(2, bottom - top)}
-                  fill="#d6ac6212"
-                  stroke="#d6ac6235"
-                />
+            {zones.map((zone) => {
+              const a = xy({ time: zone.time1, price: zone.price2 }),
+                b = xy({ time: zone.time2, price: zone.price1 });
+              if (!a || !b) return null;
+              const left = Math.min(a.x, b.x),
+                top = Math.min(a.y, b.y),
+                w = Math.abs(b.x - a.x),
+                h = Math.abs(b.y - a.y);
+              if (w < 1 || h < 1) return null;
+              return (
+                <g key={`zone-${zone.time1}`}>
+                  <rect
+                    x={left}
+                    y={top}
+                    width={w}
+                    height={h}
+                    fill="none"
+                    stroke="rgba(240, 180, 41, 0.85)"
+                    strokeWidth="2"
+                  />
+                  <text
+                    x={left + w / 2}
+                    y={top - 4}
+                    fill="rgba(240, 180, 41, 0.9)"
+                    fontSize="11"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                  >
+                    {(
+                      ((zone.price2 - zone.price1) / zone.price1) *
+                      100
+                    ).toFixed(1)}
+                    %
+                  </text>
+                </g>
               );
             })}
             {patterns.map((pattern) => {

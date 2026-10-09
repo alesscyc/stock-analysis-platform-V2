@@ -31,27 +31,30 @@ export function pivots(candles, radius = 4) {
   }
   return result;
 }
+/** Completed boxes from a pivot high to the first later high reaching at least 99% of it. */
 export function swingZones(candles) {
-  const groups = [];
-  for (const point of pivots(candles.slice(-300))) {
-    const group = groups.find(
-      (g) => Math.abs(g.mean / point.price - 1) < 0.012,
-    );
-    if (group) {
-      group.points.push(point);
-      group.mean =
-        group.points.reduce((sum, p) => sum + p.price, 0) / group.points.length;
-    } else groups.push({ mean: point.price, points: [point] });
+  const start = Math.max(3, candles.length - 365),
+    zones = [];
+  let nextAllowedIndex = 0;
+  for (const pivot of pivots(candles, 3)) {
+    if (pivot.kind !== "high" || pivot.index < start) continue;
+    if (pivot.index < nextAllowedIndex) continue;
+    let end = pivot.index + 1;
+    while (end < candles.length && candles[end].high < pivot.price * 0.99)
+      end++;
+    if (end === candles.length) continue;
+    let bottom = pivot.price;
+    for (let j = pivot.index + 1; j < end; j++)
+      bottom = Math.min(bottom, candles[j].low);
+    zones.push({
+      time1: pivot.time,
+      time2: candles[end].time,
+      price1: bottom,
+      price2: pivot.price,
+    });
+    nextAllowedIndex = end;
   }
-  return groups
-    .filter((g) => g.points.length >= 2)
-    .sort((a, b) => b.points.length - a.points.length)
-    .slice(0, 5)
-    .map((g) => ({
-      lower: g.mean * 0.996,
-      upper: g.mean * 1.004,
-      touches: g.points.length,
-    }));
+  return zones.slice(-10);
 }
 const PRICE_PATTERN_DETECTORS = [
   detectDoubleBottoms,
