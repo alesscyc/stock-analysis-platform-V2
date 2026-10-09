@@ -65,7 +65,7 @@ export default function App() {
       : "NVDA";
   const [interval, setInterval] = useState("1d"),
     [panel, setPanel] = useState("watchlist"),
-    [sideOpen, setSideOpen] = useState(true),
+    [sideOpen, setSideOpen] = useState(false),
     [chatOpen, setChatOpen] = useState(false);
   const [sideWidth, setSideWidth] = useStored("northstar.sidebarWidth", 276),
     [chatWidth, setChatWidth] = useStored("northstar.chatWidth", 330),
@@ -73,7 +73,7 @@ export default function App() {
       "northstar.accountHeight",
       280,
     );
-  const [accountOpen, setAccountOpen] = useState(true),
+  const [accountOpen, setAccountOpen] = useState(false),
     [accountMax, setAccountMax] = useState(false),
     [accountTab, setAccountTab] = useState("portfolio"),
     [displayAccount, setDisplayAccount] = useState("");
