@@ -91,7 +91,8 @@ export default function App() {
   const [settings, setSettings] = useState(false),
     [ticket, setTicket] = useState(null),
     [preview, setPreview] = useState(null),
-    [toast, setToast] = useState(null);
+    [toast, setToast] = useState(null),
+    [ticketFocus, setTicketFocus] = useState(0);
   const [backtest, setBacktest] = useState(null),
     [modelOverride, setModelOverride] = useState(null),
     [quotes, setQuotes] = useState({}),
@@ -100,6 +101,8 @@ export default function App() {
   const searchRef = useRef(null),
     paperRef = useRef(null),
     ticketRef = useRef(null),
+    ticketHeading = useRef(null),
+    ticketReturn = useRef(null),
     modeRef = useRef("paper");
   const stock = useStock(symbol, interval),
     health = useHealth(),
@@ -109,6 +112,8 @@ export default function App() {
       preference === "live" && !paperOverride && !modeStorageError && connected
         ? "live"
         : "paper";
+  const sideVisible = sideOpen && (panel !== "trade" || !!ticket),
+    ticketVisible = sideVisible && panel === "trade";
   modeRef.current = mode;
   paperRef.current = paper;
   ticketRef.current = ticket;
@@ -181,6 +186,14 @@ export default function App() {
     setPreview(null);
   }, [mode, symbol]);
   useEffect(() => {
+    if (ticketFocus) ticketHeading.current?.focus();
+  }, [ticketFocus]);
+  useEffect(() => {
+    // Return focus to the opener when the closed ticket took focus with it.
+    if (!ticket && document.activeElement === document.body)
+      ticketReturn.current?.focus();
+  }, [ticket]);
+  useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(null), 9000);
     return () => clearTimeout(timer);
@@ -229,12 +242,13 @@ export default function App() {
     };
   }, [quoteSymbols, quoteToken, lang]);
   const notify = (text, tone = "info") => setToast({ text, tone });
+  // At these widths the chat and side panels overlay each other, so only one stays open.
+  const overlayPanels = () => window.innerWidth <= 1050;
   function togglePanel(next) {
-    if (next === panel) setSideOpen((open) => !open);
-    else {
-      setPanel(next);
-      setSideOpen(true);
-    }
+    const open = next !== panel || !sideVisible;
+    setPanel(next);
+    setSideOpen(open);
+    if (open && overlayPanels()) setChatOpen(false);
   }
   function addWatch() {
     if (!watchlist.includes(symbol)) {
@@ -255,18 +269,6 @@ export default function App() {
   }
   function changeMode(next) {
     if (next === "live" && !connected) return;
-    if (
-      next === "live" &&
-      preference !== "live" &&
-      !confirm(
-        tx(
-          lang,
-          "Live Mode sends orders to your connected Interactive Brokers account, which may use real money. The app does not determine whether IB is using a real or broker paper account. Enable Live Mode?",
-          "LIVE 模式會將委託送至已連接的 Interactive Brokers 帳戶，可能使用真實資金。本應用程式無法判定 IB 為真實或券商模擬帳戶。啟用 LIVE 模式？",
-        ),
-      )
-    )
-      return;
     try {
       if (next === "paper") {
         sessionStorage.setItem("northstar.paperOverride", "1");
@@ -288,6 +290,18 @@ export default function App() {
     setTicket(null);
     setPreview(null);
   }
+  function showTicket() {
+    if (
+      !ticketHeading.current
+        ?.closest(".trade-panel")
+        ?.contains(document.activeElement)
+    )
+      ticketReturn.current = document.activeElement;
+    setPanel("trade");
+    setSideOpen(true);
+    if (overlayPanels()) setChatOpen(false);
+    setTicketFocus((n) => n + 1);
+  }
   function openTicket(side = "BUY", draft = null) {
     if (DEMO)
       return notify(
@@ -298,6 +312,7 @@ export default function App() {
         ),
         "warning",
       );
+    if (!draft && ticketRef.current) return showTicket();
     try {
       const data = draft
         ? validateTicket(draft, mode)
@@ -309,6 +324,7 @@ export default function App() {
             tif: "DAY",
           };
       setTicket({ ...data, mode, fromAI: !!draft });
+      showTicket();
     } catch (e) {
       notify(e.message, "error");
     }
@@ -327,6 +343,7 @@ export default function App() {
       );
       return;
     }
+    showTicket();
     setTicket((current) => ({
       ...order,
       ...(newPrice != null
@@ -426,7 +443,7 @@ export default function App() {
   ];
   return (
     <div
-      className={`app ${accountMax ? "account-max" : ""} ${sideOpen ? "side-open" : ""} ${chatOpen ? "chat-open" : ""}`}
+      className={`app ${accountMax ? "account-max" : ""} ${sideVisible ? "side-open" : ""} ${ticketVisible ? "trade-open" : ""} ${chatOpen ? "chat-open" : ""}`}
     >
       <a className="skip-link" href="#main-chart">
         {tx(lang, "Skip to chart", "跳至圖表")}
@@ -547,151 +564,7 @@ export default function App() {
           )}
         </div>
       )}
-      {mode === "live" && (
-        <div className="app-banner live-banner">
-          <Icon name="info" size={15} />
-          {tx(
-            lang,
-            "LIVE ROUTE · Orders can use real money. Verify your IB account before submitting.",
-            "LIVE 路由 · 委託可能使用真實資金，提交前請確認 IB 帳戶。",
-          )}
-        </div>
-      )}
       <div className="workspace">
-        <nav
-          className="rail"
-          aria-label={tx(lang, "Workspace navigation", "工作區導覽")}
-        >
-          <div className="rail-top">
-            {[
-              ["watchlist", "star", "Watchlist", "觀察清單"],
-              ["screener", "filter", "Screener", "選股"],
-              ["backtest", "flask", "Backtest", "回測"],
-            ].map(([key, icon, en, zh]) => (
-              <button
-                key={key}
-                className={`rail-button ${sideOpen && panel === key ? "active" : ""}`}
-                onClick={() => togglePanel(key)}
-                title={tx(lang, en, zh)}
-                aria-label={tx(lang, en, zh)}
-                aria-pressed={sideOpen && panel === key}
-              >
-                <Icon name={icon} size={21} />
-                <span>{tx(lang, en, zh)}</span>
-              </button>
-            ))}
-            <div className="rail-separator" />
-            <button
-              className={`rail-button ${accountOpen ? "active subtle" : ""}`}
-              onClick={() => {
-                setAccountOpen(!accountOpen);
-                setAccountMax(false);
-              }}
-              aria-label={tx(lang, "Toggle account panel", "切換帳戶面板")}
-              title={tx(lang, "Account", "帳戶")}
-            >
-              <Icon name="wallet" size={21} />
-              <span>{tx(lang, "Account", "帳戶")}</span>
-            </button>
-          </div>
-          <button
-            className={`rail-button ${chatOpen ? "active" : ""}`}
-            onClick={() => setChatOpen(!chatOpen)}
-            aria-label={tx(lang, "Toggle AI assistant", "切換 AI 助理")}
-            title={tx(lang, "AI assistant", "AI 助理")}
-          >
-            <Icon name="chat" size={21} />
-            <span>AI</span>
-          </button>
-          <div className="rail-bottom">
-            <span
-              className="local-badge"
-              title={tx(lang, "Local-first workspace", "本機優先工作區")}
-            >
-              L
-            </span>
-          </div>
-        </nav>
-        {sideOpen && (
-          <>
-            <aside
-              className={`sidebar ${panel === "watchlist" ? "" : "research-sidebar"}`}
-              style={{
-                width: Math.max(240, Math.min(500, Number(sideWidth) || 276)),
-              }}
-              aria-label={tx(lang, "Research panel", "研究面板")}
-            >
-              <div className="sidebar-content">
-                {panel === "watchlist" ? (
-                  <>
-                    <Watchlist
-                      lang={lang}
-                      symbols={watchlist}
-                      symbol={symbol}
-                      quotes={quotes}
-                      onSelect={onSelect}
-                      onRemove={(ticker) =>
-                        setWatchlist(watchlist.filter((s) => s !== ticker))
-                      }
-                      onAdd={addWatch}
-                      quoteError={quoteError}
-                    />
-                    <PredictionCard
-                      lang={lang}
-                      symbol={symbol}
-                      prediction={prediction}
-                      loading={stock.predictionLoading && !prediction}
-                      error={stock.predictionError}
-                      onPrediction={(target, data) =>
-                        setModelOverride({ symbol: target, prediction: data })
-                      }
-                    />
-                    <div className="sidebar-bottom">
-                      <Icon name="globe" size={14} />
-                      <div>
-                        <strong>
-                          {tx(
-                            lang,
-                            "Built for your own research",
-                            "為您的研究而建",
-                          )}
-                        </strong>
-                        <span>
-                          {tx(
-                            lang,
-                            "Local workspace. Independent decisions.",
-                            "本機工作區，獨立判斷。",
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                ) : panel === "screener" ? (
-                  <ScreenerDialog lang={lang} onSelect={onSelect} />
-                ) : (
-                  <BacktestDialog
-                    lang={lang}
-                    symbol={symbol}
-                    onResult={(result) =>
-                      setBacktest({
-                        ...result,
-                        symbol: result.symbol || symbol,
-                      })
-                    }
-                  />
-                )}
-              </div>
-              <Notice tone="error">{watchError || languageError}</Notice>
-            </aside>
-            <Splitter
-              value={Number(sideWidth) || 276}
-              onChange={setSideWidth}
-              min={240}
-              max={500}
-              label={tx(lang, "Resize research panel", "調整研究面板大小")}
-            />
-          </>
-        )}
         <main className="main-workspace" id="main-chart">
           <section className="chart-area">
             <div className="instrument-header">
@@ -775,18 +648,11 @@ export default function App() {
                   </div>
                 </details>
                 <button
-                  className="button buy-button"
+                  className="button primary"
                   disabled={DEMO || !stock.candles.length}
-                  onClick={() => openTicket("BUY")}
+                  onClick={() => openTicket()}
                 >
-                  {tx(lang, "Buy", "買入")}
-                </button>
-                <button
-                  className="button sell-button"
-                  disabled={DEMO || !stock.candles.length}
-                  onClick={() => openTicket("SELL")}
-                >
-                  {tx(lang, "Sell", "賣出")}
+                  {tx(lang, "Trade", "交易")}
                 </button>
               </div>
             </div>
@@ -794,7 +660,6 @@ export default function App() {
               <Notice tone="warning">{stock.error}</Notice>
             )}
             <StockChart
-              demo={DEMO}
               lang={lang}
               symbol={symbol}
               interval={interval}
@@ -806,7 +671,7 @@ export default function App() {
               historyLoading={stock.historyLoading}
               positions={chartAccount?.positions || []}
               orders={activeOrders}
-              preview={preview}
+              preview={ticketVisible ? preview : null}
               actions={backtest?.symbol === symbol ? backtest.actions : []}
               onOrderEdit={editOrder}
               onRetry={stock.reload}
@@ -1017,41 +882,179 @@ export default function App() {
             </aside>
           </>
         )}
-      </div>
-      <footer className="statusbar">
-        <div>
-          <span
-            className={`status-dot ${health.status === "offline" ? "offline" : ""}`}
-          />
-          {DEMO
-            ? tx(lang, "Static preview", "靜態預覽")
-            : tx(
+        {(sideVisible || ticket) && (
+          <>
+            {sideVisible && (
+              <Splitter
+                reverse
+                value={Number(sideWidth) || 276}
+                onChange={setSideWidth}
+                min={240}
+                max={500}
+                label={tx(
+                  lang,
+                  ticketVisible
+                    ? "Resize order ticket"
+                    : "Resize research panel",
+                  ticketVisible ? "調整委託單大小" : "調整研究面板大小",
+                )}
+              />
+            )}
+            <aside
+              className={`sidebar ${panel === "watchlist" ? "" : "research-sidebar"}`}
+              hidden={!sideVisible}
+              style={{
+                width: Math.max(240, Math.min(500, Number(sideWidth) || 276)),
+              }}
+              aria-label={tx(
                 lang,
-                health.status === "offline"
-                  ? "API unavailable"
-                  : "Local workspace",
-                health.status === "offline" ? "API 無法使用" : "本機工作區",
+                ticketVisible ? "Order ticket" : "Research panel",
+                ticketVisible ? "委託單" : "研究面板",
               )}
-          <span className="status-divider">/</span>
-          {tx(
-            lang,
-            DEMO ? "Generated NVDA sample" : "Yahoo Finance data",
-            DEMO ? "產生的 NVDA 範例" : "Yahoo Finance 資料",
-          )}
-        </div>
-        <span className="statusbar-center">
-          {tx(
-            lang,
-            "Research with context. Trade with intention.",
-            "掌握脈絡，審慎交易。",
-          )}
-        </span>
-        <div>
-          <Icon name="shield" size={12} />
-          {tx(lang, "No autonomous execution", "無自主交易")}
-          <span className="status-divider">/</span>USD
-        </div>
-      </footer>
+            >
+              <div className="sidebar-content">
+                {ticket && (
+                  <TradeDialog
+                    key={`${ticket.id || "new"}:${ticket.symbol}:${ticket.mode}:${ticket.revision || 0}`}
+                    lang={lang}
+                    ticket={ticket}
+                    mode={mode}
+                    connected={connected}
+                    writable={paper.writable}
+                    paperError={paper.error}
+                    onClose={() => {
+                      if (ticketRef.current !== ticket) return;
+                      setTicket(null);
+                      setPreview(null);
+                    }}
+                    onSubmit={submitOrder}
+                    onPreview={setPreview}
+                    hidden={!ticketVisible}
+                    headingRef={ticketHeading}
+                  />
+                )}
+                {!sideVisible || panel === "trade" ? null : panel ===
+                  "watchlist" ? (
+                  <>
+                    <Watchlist
+                      lang={lang}
+                      symbols={watchlist}
+                      symbol={symbol}
+                      quotes={quotes}
+                      onSelect={onSelect}
+                      onRemove={(ticker) =>
+                        setWatchlist(watchlist.filter((s) => s !== ticker))
+                      }
+                      onAdd={addWatch}
+                      quoteError={quoteError}
+                    />
+                    <PredictionCard
+                      lang={lang}
+                      symbol={symbol}
+                      prediction={prediction}
+                      loading={stock.predictionLoading && !prediction}
+                      error={stock.predictionError}
+                      onPrediction={(target, data) =>
+                        setModelOverride({ symbol: target, prediction: data })
+                      }
+                    />
+                    <div className="sidebar-bottom">
+                      <Icon name="globe" size={14} />
+                      <div>
+                        <strong>
+                          {tx(
+                            lang,
+                            "Built for your own research",
+                            "為您的研究而建",
+                          )}
+                        </strong>
+                        <span>
+                          {tx(
+                            lang,
+                            "Local workspace. Independent decisions.",
+                            "本機工作區，獨立判斷。",
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                ) : panel === "screener" ? (
+                  <ScreenerDialog lang={lang} onSelect={onSelect} />
+                ) : (
+                  <BacktestDialog
+                    lang={lang}
+                    symbol={symbol}
+                    onResult={(result) =>
+                      setBacktest({
+                        ...result,
+                        symbol: result.symbol || symbol,
+                      })
+                    }
+                  />
+                )}
+              </div>
+              <Notice tone="error">{watchError || languageError}</Notice>
+            </aside>
+          </>
+        )}
+        <nav
+          className="rail"
+          aria-label={tx(lang, "Workspace navigation", "工作區導覽")}
+        >
+          <div className="rail-top">
+            {[
+              ["watchlist", "star", "Watchlist", "觀察清單"],
+              ["screener", "filter", "Screener", "選股"],
+              ["backtest", "flask", "Backtest", "回測"],
+            ].map(([key, icon, en, zh]) => (
+              <button
+                key={key}
+                className={`rail-button ${sideVisible && panel === key ? "active" : ""}`}
+                onClick={() => togglePanel(key)}
+                title={tx(lang, en, zh)}
+                aria-label={tx(lang, en, zh)}
+                aria-pressed={sideVisible && panel === key}
+              >
+                <Icon name={icon} size={21} />
+                <span>{tx(lang, en, zh)}</span>
+              </button>
+            ))}
+            <div className="rail-separator" />
+            <button
+              className={`rail-button ${accountOpen ? "active subtle" : ""}`}
+              onClick={() => {
+                setAccountOpen(!accountOpen);
+                setAccountMax(false);
+              }}
+              aria-label={tx(lang, "Toggle account panel", "切換帳戶面板")}
+              title={tx(lang, "Account", "帳戶")}
+            >
+              <Icon name="wallet" size={21} />
+              <span>{tx(lang, "Account", "帳戶")}</span>
+            </button>
+          </div>
+          <button
+            className={`rail-button ${chatOpen ? "active" : ""}`}
+            onClick={() => {
+              if (!chatOpen && overlayPanels()) setSideOpen(false);
+              setChatOpen(!chatOpen);
+            }}
+            aria-label={tx(lang, "Toggle AI assistant", "切換 AI 助理")}
+            title={tx(lang, "AI assistant", "AI 助理")}
+          >
+            <Icon name="chat" size={21} />
+            <span>AI</span>
+          </button>
+          <div className="rail-bottom">
+            <span
+              className="local-badge"
+              title={tx(lang, "Local-first workspace", "本機優先工作區")}
+            >
+              L
+            </span>
+          </div>
+        </nav>
+      </div>
       {toast && (
         <div className="toast">
           <Notice tone={toast.tone}>{toast.text}</Notice>
@@ -1063,24 +1066,6 @@ export default function App() {
             <Icon name="close" size={14} />
           </button>
         </div>
-      )}
-      {ticket && (
-        <TradeDialog
-          key={`${ticket.id || "new"}:${ticket.symbol}:${ticket.mode}:${ticket.revision || 0}`}
-          lang={lang}
-          ticket={ticket}
-          mode={mode}
-          connected={connected}
-          writable={paper.writable}
-          paperError={paper.error}
-          onClose={() => {
-            if (ticketRef.current !== ticket) return;
-            setTicket(null);
-            setPreview(null);
-          }}
-          onSubmit={submitOrder}
-          onPreview={setPreview}
-        />
       )}
       {settings && (
         <SettingsDialog

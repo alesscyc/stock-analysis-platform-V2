@@ -55,7 +55,6 @@ const names = {
   range: ["Price range", "價格範圍"],
 };
 export default function StockChart({
-  demo = false,
   lang,
   symbol,
   interval,
@@ -173,7 +172,7 @@ export default function StockChart({
         textColor: "#7f90a6",
         fontFamily: "Inter, system-ui, sans-serif",
         fontSize: 11,
-        attributionLogo: false,
+        attributionLogo: true,
       },
       grid: {
         vertLines: { color: "#182332" },
@@ -794,6 +793,17 @@ export default function StockChart({
         </span>
         <span className="meta-dot">·</span>
         <span>{tx(lang, "NASDAQ / NYSE", "美國股票")}</span>
+        {(historyLoading || partialHistory) && (
+          <small className="history-status" role="status">
+            {historyLoading
+              ? tx(lang, "Loading older history…", "載入更早歷史…")
+              : tx(
+                  lang,
+                  "Partial history · older data unavailable",
+                  "歷史不完整 · 無法取得更早資料",
+                )}
+          </small>
+        )}
         {bar && (
           <div className="ohlc">
             <span>
@@ -1078,33 +1088,6 @@ export default function StockChart({
           NORTHSTAR <span>{tx(lang, "RESEARCH WORKSPACE", "研究工作區")}</span>
         </div>
       </div>
-      <footer className="chart-footer">
-        <span className="status-dot" />
-        <span>
-          {historyLoading
-            ? tx(lang, "Loading older history…", "載入更早歷史…")
-            : partialHistory
-              ? tx(
-                  lang,
-                  "Partial history · older data unavailable",
-                  "歷史不完整 · 無法取得更早資料",
-                )
-              : `${number(candles.length)} ${tx(lang, "bars", "根 K 線")}`}
-        </span>
-        <span className="toolbar-spacer" />
-        <span>
-          {tx(
-            lang,
-            demo
-              ? "Fictional sample · No trading"
-              : "Delayed data · Research, not advice",
-            demo ? "虛構範例 · 不可交易" : "行情可能延遲 · 僅供研究",
-          )}
-        </span>
-        <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
-          TradingView
-        </a>
-      </footer>
     </section>
   );
 }

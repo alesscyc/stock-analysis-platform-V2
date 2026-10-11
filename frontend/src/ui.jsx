@@ -109,37 +109,24 @@ export function Icon({ name, size = 18, ...props }) {
     </svg>
   );
 }
-export function Modal({
-  title,
-  onClose,
-  children,
-  wide = false,
-  nonModal = false,
-}) {
+export function Modal({ title, onClose, children, wide = false }) {
   const ref = useRef(null),
     titleId = useId();
   useEffect(() => {
     const dialog = ref.current;
     const previous = document.activeElement;
-    if (nonModal) dialog.show();
-    else dialog.showModal();
+    dialog.showModal();
     return () => {
       dialog.close();
       previous?.focus?.();
     };
-  }, [nonModal]);
+  }, []);
   return (
     <dialog
       ref={ref}
-      className={`modal ${wide ? "wide" : ""} ${nonModal ? "floating-ticket" : ""}`}
+      className={`modal ${wide ? "wide" : ""}`}
       aria-labelledby={titleId}
-      aria-modal={!nonModal}
-      onKeyDown={(event) => {
-        if (nonModal && event.key === "Escape") {
-          event.preventDefault();
-          onClose();
-        }
-      }}
+      aria-modal
       onCancel={(event) => {
         event.preventDefault();
         onClose();

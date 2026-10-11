@@ -215,18 +215,6 @@ pre {
   background: #284237;
   color: var(--teal);
 }
-.button.buy-button {
-  background: #24483d;
-  border-color: #326252;
-  color: #7ee0bf;
-  min-width: 68px;
-}
-.button.sell-button {
-  background: #432b34;
-  border-color: #63404b;
-  color: #eea0ab;
-  min-width: 68px;
-}
 .input,
 .select {
   background: #0e1622;
@@ -725,8 +713,7 @@ pre {
   background: #352d201f;
   color: #c9b891;
 }
-.warning-banner,
-.live-banner {
+.warning-banner {
   background: #79533025;
   color: #ebc098;
 }
@@ -739,7 +726,7 @@ pre {
 .rail {
   width: 67px;
   flex-shrink: 0;
-  border-right: 1px solid var(--border);
+  border-left: 1px solid var(--border);
   background: #101824;
   display: flex;
   flex-direction: column;
@@ -814,6 +801,10 @@ pre {
 .sidebar-content {
   flex: 1;
   overflow: auto;
+}
+.sidebar[hidden],
+.trade-panel[hidden] {
+  display: none;
 }
 .splitter {
   flex-shrink: 0;
@@ -1331,6 +1322,9 @@ pre {
   font-weight: 400;
   color: #bbcfe2;
 }
+.history-status {
+  color: #ebc098;
+}
 .chart-stage {
   position: relative;
   flex: 1;
@@ -1405,27 +1399,6 @@ pre {
   gap: 7px;
   border-radius: 5px;
   font-size: 10px;
-}
-.chart-footer {
-  height: 30px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 19px;
-  color: #667f9c;
-  font-size: 8px;
-  border-top: 1px solid #1d2b3e;
-  flex-shrink: 0;
-}
-.chart-footer .status-dot {
-  width: 4px;
-  height: 4px;
-}
-.chart-footer a {
-  color: #597591;
-  font-size: 7px;
-  margin-left: 8px;
-  text-decoration: none;
 }
 .drawing-hint {
   position: absolute;
@@ -1703,38 +1676,6 @@ pre {
   font-size: 10px;
 }
 .orders-content .account-context .muted {
-  font-size: 8px;
-}
-.statusbar {
-  height: 27px;
-  flex-shrink: 0;
-  background: #0b131e;
-  border-top: 1px solid #243348;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-  color: #6e859f;
-  font-size: 8px;
-  letter-spacing: 0.1px;
-  gap: 15px;
-}
-.statusbar > div {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  white-space: nowrap;
-}
-.statusbar .status-dot {
-  width: 4px;
-  height: 4px;
-}
-.status-divider {
-  color: #344c65;
-  padding: 0 5px;
-}
-.statusbar-center {
-  color: #4a637d;
   font-size: 8px;
 }
 .chat-sidebar {
@@ -2045,18 +1986,6 @@ pre {
 }
 .modal.wide {
   width: min(900px, calc(100vw - 28px));
-}
-.modal.floating-ticket {
-  position: fixed;
-  inset: 85px 20px auto auto;
-  margin: 0;
-  z-index: 80;
-  width: min(410px, calc(100vw - 28px));
-  max-height: calc(100dvh - 125px);
-  box-shadow: 0 20px 80px #000a;
-}
-.floating-ticket .modal-header {
-  cursor: default;
 }
 .modal::backdrop {
   background: #050c16b3;
@@ -2416,9 +2345,6 @@ pre {
   .chat-open .instrument-main {
     flex-wrap: wrap;
   }
-  .statusbar-center {
-    display: none;
-  }
 }
 @media (max-width: 1050px) {
   .connection-pill {
@@ -2474,9 +2400,9 @@ pre {
   }
   .chat-sidebar {
     position: absolute;
-    right: 0;
+    right: 67px;
     top: 67px;
-    bottom: 27px;
+    bottom: 0;
     z-index: 20;
     box-shadow: -15px 0 35px #0008;
     border-left: 1px solid #3c5069;
@@ -2505,20 +2431,23 @@ pre {
   }
   .sidebar {
     position: absolute;
-    left: 58px;
+    right: 58px;
     top: 67px;
-    bottom: 27px;
+    bottom: 0;
     width: min(340px, calc(100vw - 58px)) !important;
     max-width: calc(100vw - 58px);
     z-index: 16;
-    border-right: 1px solid #374b64;
-    box-shadow: 15px 0 35px #0009;
+    border-left: 1px solid #374b64;
+    box-shadow: -15px 0 35px #0009;
   }
-  .side-open .main-workspace {
+  .chat-sidebar {
+    right: 58px;
+  }
+  .side-open:not(.trade-open) .main-workspace {
     opacity: 0.5;
     pointer-events: none;
   }
-  .sidebar + .splitter {
+  .splitter:has(+ .sidebar) {
     display: none;
   }
   .rail {
@@ -2602,9 +2531,6 @@ pre {
   .allocation {
     display: none;
   }
-  .chart-footer {
-    font-size: 7px;
-  }
   .sidebar-content {
     overflow: auto;
   }
@@ -2621,9 +2547,6 @@ pre {
   }
   .warning-banner {
     font-size: 9px;
-  }
-  .statusbar > div:last-child {
-    display: none;
   }
   .settings-grid {
     grid-template-columns: 1fr;
@@ -2716,12 +2639,13 @@ pre {
     height: 24px;
   }
   .sidebar {
-    left: 48px;
+    right: 48px;
     top: 59px;
     max-width: calc(100vw - 48px);
     width: calc(100vw - 48px) !important;
   }
   .chat-sidebar {
+    right: 48px;
     top: 59px;
     max-width: calc(100vw - 48px);
     width: calc(100vw - 48px) !important;
@@ -2934,20 +2858,6 @@ pre {
   .account-empty > div > span {
     font-size: 8px;
     line-height: 1.6;
-  }
-  .chart-footer {
-    padding: 0 10px;
-    height: 26px;
-    gap: 5px;
-  }
-  .chart-footer > a,
-  .chart-footer > span:nth-last-of-type(1) {
-    display: none;
-  }
-  .statusbar {
-    padding: 0 10px;
-    font-size: 7px;
-    height: 25px;
   }
   .account-max .account-panel {
     max-height: none;

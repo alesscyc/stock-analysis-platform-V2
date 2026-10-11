@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Modal, Notice, tx, money, number, Icon } from "../src/ui.jsx";
+import { Notice, tx, money, number, Icon } from "../src/ui.jsx";
 import { validateTicket } from "../src/orderValidation.js";
 
 export default function TradeDialog({
@@ -12,6 +12,8 @@ export default function TradeDialog({
   onClose,
   onSubmit,
   onPreview,
+  hidden,
+  headingRef,
 }) {
   const editing = ticket.id != null,
     stop = editing && ticket.type === "STP";
@@ -97,17 +99,38 @@ export default function TradeDialog({
       setBusy(false);
     }
   }
+  const title = tx(
+    lang,
+    editing ? "Review order modification" : "New limit order",
+    editing ? "確認修改委託" : "新增限價委託",
+  );
   return (
-    <Modal
-      nonModal
-      title={tx(
-        lang,
-        editing ? "Review order modification" : "New limit order",
-        editing ? "確認修改委託" : "新增限價委託",
-      )}
-      onClose={() => !busy && onClose()}
+    <section
+      className="trade-panel"
+      aria-label={title}
+      hidden={hidden}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !busy) {
+          event.preventDefault();
+          onClose();
+        }
+      }}
     >
-      <form onSubmit={submit} className="stack trade-form">
+      <header className="panel-header">
+        <h2 ref={headingRef} tabIndex={-1}>
+          {title}
+        </h2>
+        <button
+          type="button"
+          className="button ghost icon-button small"
+          disabled={busy}
+          onClick={onClose}
+          aria-label={tx(lang, "Close order ticket", "關閉委託單")}
+        >
+          <Icon name="close" size={14} />
+        </button>
+      </header>
+      <form onSubmit={submit} className="panel-body stack trade-form">
         <div className="row spread">
           <span className={`badge ${mode === "live" ? "warning" : "teal"}`}>
             <Icon name="shield" size={13} />
@@ -208,7 +231,6 @@ export default function TradeDialog({
                   onChange={(e) =>
                     change(stop ? "stopPrice" : "limitPrice", e.target.value)
                   }
-                  autoFocus
                 />
               </label>
             </div>
@@ -382,6 +404,6 @@ export default function TradeDialog({
           </button>
         </div>
       </form>
-    </Modal>
+    </section>
   );
 }

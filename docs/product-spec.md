@@ -42,7 +42,7 @@ The intended user is an individual researching stocks on their own computer. The
 
 ## Workspace
 
-The main workspace contains a symbol search, instrument information, a central chart, feature side panels, an account panel with portfolio and orders tabs, and an AI chat panel. Side and account panels can be resized; the account panel can be maximized. The interface supports English and Traditional Chinese.
+The main workspace contains a symbol search, instrument information, a main chart, a right-side navigation rail with feature panels and the order ticket, an account panel with portfolio and orders tabs, and an AI chat panel. Side and account panels can be resized; the account panel can be maximized. The interface supports English and Traditional Chinese.
 
 Search can start from the top bar or by typing a supported ticker character outside an input. Selecting a watchlist item, screener result, or holding also opens its chart. On narrow screens, choosing a symbol from a side panel reveals the chart.
 
@@ -74,13 +74,13 @@ Search can start from the top bar or by typing a supported ticker character outs
 
 ### 4. Submit and manage a trade
 
-**Entry:** Check the visible trading mode, then open the order ticket or review an AI-generated draft.
+**Entry:** Check the visible trading mode, then select Trade to open the right-side order ticket or review an AI-generated draft.
 
-**Flow:** Choose buy/sell, positive whole-share quantity, limit price, time in force, and optional bracket exits. Preview prices on the chart and explicitly submit. Review pending orders, confirm price changes, or cancel orders.
+**Flow:** Choose Buy or Sell in the ticket, positive whole-share quantity, limit price, time in force, and optional bracket exits. Preview prices on the chart and explicitly submit. Opening a research panel keeps an unfinished ticket; Trade restores it until it is cancelled, submitted, or invalidated by a mode or symbol change. Review pending orders, confirm price changes, or cancel orders.
 
 **Outcome:** Paper Mode changes only browser-local simulated state. Live Mode sends requests to the configured IB connection. A successful submission is not confirmation of a fill.
 
-**Mode rule:** Live Mode is available only while IB is connected. Disconnection forces the active mode to Paper Mode without replacing the saved preference. Reconnection can therefore restore Live Mode when that remains the preference. Existing Paper Orders never migrate to IB.
+**Mode rule:** Live Mode is available only while IB is connected. Disconnection forces the active mode to Paper Mode without replacing the saved preference. Reconnection can therefore restore Live Mode when that remains the preference. Existing Paper Orders never migrate to IB. Switching to Live Mode needs no extra confirmation; each Live order still requires review and explicit authorization.
 
 ### 5. Monitor an account
 

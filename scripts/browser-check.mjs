@@ -58,6 +58,22 @@ async function browser(args, input) {
 }
 const evaluate = (script) => browser(["eval", "--stdin"], script);
 const wait = (expression) => browser(["wait", "--fn", expression]);
+const click = (name) =>
+  browser(["find", "role", "button", "click", "--name", name, "--exact"]);
+const visible = (selector) =>
+  `document.querySelector(${JSON.stringify(selector)})?.checkVisibility()`;
+// True when the centre of the element is not covered by another panel.
+const topmost = async (selector) =>
+  (await evaluate(
+    `(()=>{const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.left+r.width/2,r.top+Math.min(r.height/2,40)))})()`,
+  )) === "true";
+const ticketFocused = `document.querySelector('.trade-panel')?.contains(document.activeElement)`;
+const rect = async (selector) =>
+  JSON.parse(
+    await evaluate(
+      `document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect().toJSON()??null`,
+    ),
+  );
 const sample = JSON.parse(
   await readFile("frontend/public/demo/NVDA.json", "utf8"),
 );
@@ -252,7 +268,32 @@ try {
   await browser(["open", origin]);
   await browser(["set", "viewport", "1500", "950"]);
   await wait(
-    `document.querySelector('.chart-footer')?.textContent.includes('1,144')`,
+    `document.querySelector('.chart-stage canvas')&&[...document.querySelectorAll('.instrument-actions button')].some(b=>b.textContent==='Trade'&&!b.disabled)`,
+  );
+  assert.deepEqual(
+    JSON.parse(
+      await evaluate(
+        `[...document.querySelectorAll('.instrument-actions button')].map(b=>b.textContent)`,
+      ),
+    ),
+    ["Trade"],
+  );
+  assert.equal(
+    await evaluate(
+      `!document.querySelector('.chart-footer,.statusbar')&&!document.body.innerText.includes('Local workspace')&&!/\\d bars/.test(document.body.innerText)`,
+    ),
+    "true",
+  );
+  assert.equal(
+    await evaluate(visible(`.chart-stage a[href*="tradingview.com"]`)),
+    "true",
+    "TradingView attribution link missing",
+  );
+  const main = await rect(".main-workspace"),
+    rail = await rect(".rail");
+  assert.ok(
+    rail.left >= main.right,
+    `Navigation rail must be right of chart: ${JSON.stringify({ main, rail })}`,
   );
   await wait(
     `Array.from({length:localStorage.length},(_,i)=>localStorage.key(i)).some(k=>k.includes('paper')&&localStorage.getItem(k)?.includes('startingCash'))`,
@@ -264,7 +305,7 @@ try {
   await browser(["fill", ".symbol-search input", "AAPL"]);
   await browser(["press", "Enter"]);
   await wait(
-    `document.querySelector('h1')?.textContent==='AAPL'&&document.querySelector('.chart-footer')?.textContent.includes('Partial history')`,
+    `document.querySelector('h1')?.textContent==='AAPL'&&document.querySelector('.chart-section')?.innerText.includes('Partial history')`,
   );
   assert.equal(
     await evaluate(`!!document.querySelector('.chart-stage canvas')`),
@@ -291,15 +332,92 @@ try {
     "button",
     "click",
     "--name",
+    "Trade",
+    "--exact",
+  ]);
+  await wait(`document.querySelector('.sidebar .trade-panel')!==null`);
+  assert.equal(
+    await evaluate(`document.querySelector('dialog')===null`),
+    "true",
+  );
+  assert.deepEqual(
+    JSON.parse(
+      await evaluate(
+        `[...document.querySelectorAll('.trade-side button')].map(b=>b.textContent)`,
+      ),
+    ),
+    ["Buy", "Sell"],
+  );
+  assert.ok(
+    (await rect(".sidebar")).left >= (await rect(".main-workspace")).right,
+    "Order ticket must open right of chart",
+  );
+  assert.equal(await evaluate(ticketFocused), "true");
+  assert.equal(
+    await evaluate(
+      `document.querySelector('.sidebar').getAttribute('aria-label')+'|'+document.querySelector('.splitter:has(+ .sidebar)').getAttribute('aria-label')`,
+    ),
+    '"Order ticket|Resize order ticket"',
+  );
+  await browser([
+    "find",
+    "role",
+    "button",
+    "click",
+    "--name",
+    "Sell",
+    "--exact",
+  ]);
+  await browser([
+    "find",
+    "role",
+    "button",
+    "click",
+    "--name",
     "Buy",
     "--exact",
   ]);
+  assert.equal(liveWrites, 0);
+  console.log(
+    "PASS: one Trade entry opens a right-side BUY ticket; side changes submit nothing.",
+  );
   await browser(["find", "label", "Limit price · USD", "fill", "123"]);
   await evaluate(`document.querySelector('.exit-chip').focus()`);
   await browser(["press", "ArrowDown"]);
   await browser(["press", "ArrowDown"]);
   await wait(
     `document.querySelector('.bracket-fields input:last-of-type')!==null&&[...document.querySelectorAll('.bracket-fields input')].some(i=>i.value==='122.98')&&document.activeElement?.classList.contains('exit-chip')`,
+  );
+  await click("Sell");
+  await browser(["find", "label", "Quantity · shares", "fill", "3"]);
+  await click("Watchlist");
+  await wait(
+    `!${visible(".trade-panel")}&&${visible(".watch-symbol")}&&!document.querySelector('.exit-chip')`,
+  );
+  await browser(["press", "Escape"]);
+  await click("Screener");
+  await click("Trade");
+  await wait(visible(".trade-panel"));
+  assert.equal(await evaluate(ticketFocused), "true");
+  assert.deepEqual(
+    JSON.parse(
+      await evaluate(
+        `[document.querySelector('.trade-side .active')?.textContent,document.querySelector('.check-row input').checked,...[...document.querySelectorAll('.trade-form .form-grid input')].map(i=>i.value)]`,
+      ),
+    ),
+    ["Sell", true, "3", "123", "", "122.98"],
+  );
+  await browser(["press", "Escape"]);
+  await wait(
+    `!document.querySelector('.trade-panel')&&document.activeElement?.textContent==='Trade'`,
+  );
+  await click("Trade");
+  await wait(
+    `document.querySelector('.trade-side .active')?.textContent==='Buy'&&document.querySelector('.trade-form input').value==='1'`,
+  );
+  assert.equal(liveWrites, 0);
+  console.log(
+    "PASS: research menus keep the hidden draft; Trade restores it; Escape closes and restores focus.",
   );
   await browser([
     "find",
@@ -330,7 +448,7 @@ try {
     "button",
     "click",
     "--name",
-    "Buy",
+    "Trade",
     "--exact",
   ]);
   await browser(["find", "label", "Limit price · USD", "fill", "90"]);
@@ -344,6 +462,9 @@ try {
     "--exact",
   ]);
   assert.equal((await paper()).orders.length, 0);
+  await click("Watchlist");
+  await click("Trade");
+  await wait(visible(".trade-panel"));
   await browser([
     "find",
     "role",
@@ -369,6 +490,7 @@ try {
     "Modify",
     "--exact",
   ]);
+  await wait(`document.querySelector('.sidebar .trade-panel')!==null`);
   await browser(["find", "label", "Limit price · USD", "fill", "91"]);
   await browser([
     "find",
@@ -380,6 +502,11 @@ try {
     "--exact",
   ]);
   assert.equal((await paper()).orders[0].limitPrice, 90);
+  await click("Backtest");
+  await click("Trade");
+  await wait(
+    `${visible(".trade-panel")}&&document.querySelector('.trade-panel h2')?.textContent==='Review order modification'`,
+  );
   await browser([
     "find",
     "role",
@@ -420,6 +547,15 @@ try {
     "PASS: price edits require confirmation; fresh quote fills full order and updates cash.",
   );
   await browser(["tab", "new", origin]);
+  await browser([
+    "find",
+    "role",
+    "button",
+    "click",
+    "--name",
+    "Toggle account panel",
+    "--exact",
+  ]);
   await browser(["wait", "--text", "Paper Account"]);
   await wait(
     `document.querySelector('.account-panel')?.textContent.includes('Read-only')`,
@@ -444,6 +580,10 @@ try {
     "Screener",
     "--exact",
   ]);
+  assert.ok(
+    (await rect(".sidebar")).left >= (await rect(".main-workspace")).right,
+    "Research panel must open right of chart",
+  );
   await browser(["fill", ".research-symbol-input", "NVDA,AAPL,BAD"]);
   await evaluate(
     `{const checks=document.querySelectorAll('.research-condition-toggle input');checks[0].click();checks[2].click();}`,
@@ -539,6 +679,15 @@ try {
     "Review in order ticket",
     "--exact",
   ]);
+  await wait(`document.querySelector('.sidebar .trade-panel')!==null`);
+  {
+    const ticket = await rect(".sidebar"),
+      chat = await rect(".chat-sidebar");
+    assert.ok(
+      ticket.left >= chat.right || ticket.right <= chat.left,
+      "Ticket overlaps AI panel",
+    );
+  }
   assert.equal(liveWrites, 0);
   assert.equal((await paper()).orders.length, 0);
   await browser([
@@ -553,15 +702,49 @@ try {
   console.log(
     "PASS: secondary tab is read-only; backtest and AI drafts do not create account orders.",
   );
-  await browser([
-    "find",
-    "role",
-    "button",
-    "click",
-    "--name",
-    "Close AI assistant",
-    "--exact",
-  ]);
+  await browser(["set", "viewport", "1000", "900"]);
+  await click("Review in order ticket");
+  await wait(
+    `!document.querySelector('.chat-sidebar')&&${visible(".trade-panel")}`,
+  );
+  assert.ok(await topmost(".trade-panel"), "Ticket hidden at 1000px");
+  await click("Toggle AI assistant");
+  await wait(`${visible(".chat-sidebar")}&&!${visible(".trade-panel")}`);
+  assert.ok(await topmost(".chat-sidebar"), "AI panel hidden at 1000px");
+  await click("Close AI assistant");
+  await click("Trade");
+  await wait(
+    `${visible(".trade-panel")}&&document.querySelector('.trade-panel').innerText.includes('AI draft')`,
+  );
+  await browser(["set", "viewport", "800", "900"]);
+  await browser(["find", "label", "Limit price · USD", "fill", "123"]);
+  await wait(`document.querySelector('.exit-chip')!==null`);
+  assert.ok(await topmost(".exit-chip"), "Ticket blocks chart preview handles");
+  assert.ok(await topmost(".chart-stage"), "Ticket disables the chart");
+  assert.ok(
+    Number(await evaluate("document.documentElement.scrollWidth")) <= 800,
+  );
+  await click("Cancel");
+  await browser(["set", "viewport", "390", "844"]);
+  await click("Toggle AI assistant");
+  await wait(`!document.querySelector('.research-chat-input')?.disabled`);
+  await browser(["fill", ".research-chat-input", "Draft an order."]);
+  await browser(["scrollintoview", ".research-chat-form .button.primary"]);
+  await click("Send");
+  await wait(`document.querySelector('.research-chat-draft')!==null`);
+  await browser(["scrollintoview", ".research-chat-draft .button.primary"]);
+  await click("Review in order ticket");
+  await wait(
+    `!document.querySelector('.chat-sidebar')&&${visible(".trade-panel")}`,
+  );
+  assert.ok(await topmost(".trade-panel"), "Ticket hidden at 390px");
+  assert.ok((await rect(".sidebar")).right <= (await rect(".rail")).left);
+  await click("Cancel");
+  await browser(["set", "viewport", "1500", "950"]);
+  assert.equal(liveWrites, 0);
+  console.log(
+    "PASS: AI drafts reveal an uncovered ticket at 1000px and 390px; chart handles stay usable at 800px.",
+  );
   await browser([
     "find",
     "role",
@@ -586,6 +769,39 @@ try {
   await wait(`!document.querySelector('.app').classList.contains('side-open')`);
   const width = Number(await evaluate("document.documentElement.scrollWidth"));
   assert.ok(width <= 390, `Mobile overflows viewport: ${width}`);
+  await browser([
+    "find",
+    "role",
+    "button",
+    "click",
+    "--name",
+    "交易",
+    "--exact",
+  ]);
+  await wait(
+    `document.querySelector('.trade-panel')?.innerText.includes('賣出')`,
+  );
+  {
+    const ticket = await rect(".sidebar"),
+      navigation = await rect(".rail");
+    assert.ok(ticket.left >= 0 && ticket.right <= navigation.left);
+    assert.ok(navigation.right <= 390, "Mobile navigation hidden");
+    assert.ok(
+      Number(await evaluate("document.documentElement.scrollWidth")) <= 390,
+    );
+  }
+  await browser([
+    "find",
+    "role",
+    "button",
+    "click",
+    "--name",
+    "關閉委託單",
+    "--exact",
+  ]);
+  await wait(
+    `!document.querySelector('.trade-panel')&&!document.querySelector('.app').classList.contains('side-open')`,
+  );
   await mkdir("artifacts", { recursive: true });
   await browser(["screenshot", "artifacts/browser-check-mobile.png"]);
   console.log(
@@ -593,8 +809,39 @@ try {
   );
   await browser(["set", "viewport", "1500", "950"]);
   await evaluate(
-    `localStorage.setItem('northstar.language',JSON.stringify('en'));localStorage.setItem('northstar.tradingMode',JSON.stringify('live'));location.reload()`,
+    `localStorage.setItem('northstar.language',JSON.stringify('en'));location.reload()`,
   );
+  ibConnected = true;
+  const livePressed = `document.querySelector('.mode-switch button:last-child')?.getAttribute('aria-pressed')==='true'`;
+  await wait(
+    `document.querySelector('.connection-pill')?.textContent.includes('connected')&&!document.querySelector('.mode-switch button:last-child').disabled`,
+  );
+  await evaluate(
+    `window.__confirms=0;window.confirm=()=>{window.__confirms++;return false}`,
+  );
+  await browser([
+    "find",
+    "role",
+    "button",
+    "click",
+    "--name",
+    "Live",
+    "--exact",
+  ]);
+  await wait(livePressed);
+  assert.equal(await evaluate(`window.__confirms`), "0");
+  assert.equal(
+    await evaluate(
+      `!document.querySelector('.live-banner')&&!document.body.innerText.includes('LIVE ROUTE')`,
+    ),
+    "true",
+  );
+  assert.equal(liveWrites, 0);
+  console.log(
+    "PASS: connected Paper-to-Live switch has no confirmation or LIVE ROUTE banner.",
+  );
+  ibConnected = false;
+  await evaluate(`location.reload()`);
   await wait(`document.querySelector('.warning-banner')!==null`);
   assert.equal(
     JSON.parse(
@@ -605,14 +852,14 @@ try {
     "live",
   );
   ibConnected = true;
-  await wait(`document.querySelector('.live-banner')!==null`);
+  await wait(livePressed);
   await browser([
     "find",
     "role",
     "button",
     "click",
     "--name",
-    "Buy",
+    "Trade",
     "--exact",
   ]);
   await browser([
@@ -628,12 +875,12 @@ try {
   assert.equal(liveWrites, 0);
   ibConnected = false;
   await wait(
-    `document.querySelector('.warning-banner')!==null&&!document.querySelector('dialog')`,
+    `document.querySelector('.warning-banner')!==null&&!document.querySelector('.trade-panel')`,
   );
   ibConnected = true;
-  await wait(`document.querySelector('.live-banner')!==null`);
+  await wait(livePressed);
   assert.equal(
-    await evaluate(`document.querySelector('dialog')===null`),
+    await evaluate(`document.querySelector('.trade-panel')===null`),
     "true",
   );
   await evaluate(
@@ -651,10 +898,7 @@ try {
   await wait(
     `document.body.textContent.includes('Trading-mode preference cannot be saved')`,
   );
-  assert.equal(
-    await evaluate(`document.querySelector('.live-banner')===null`),
-    "true",
-  );
+  assert.equal(await evaluate(livePressed), "false");
   await evaluate(
     `window.__restoreModeStorage();localStorage.setItem('northstar.tradingMode',JSON.stringify('live'));location.reload()`,
   );
@@ -668,6 +912,15 @@ try {
   await evaluate(
     `localStorage.setItem('northstar.tradingMode',JSON.stringify('paper'));localStorage.setItem(${JSON.stringify(paperKey)},'{corrupt');location.reload()`,
   );
+  await browser([
+    "find",
+    "role",
+    "button",
+    "click",
+    "--name",
+    "Toggle account panel",
+    "--exact",
+  ]);
   await wait(
     `document.querySelector('.account-panel')?.textContent.includes('invalid')`,
   );
@@ -720,7 +973,7 @@ try {
     "button",
     "click",
     "--name",
-    "Buy",
+    "Trade",
     "--exact",
   ]);
   await browser(["find", "label", "Limit price · USD", "fill", "80"]);

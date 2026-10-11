@@ -113,7 +113,7 @@ Source: [PortfolioDialog.jsx](../frontend/component/PortfolioDialog.jsx).
 
 ## F09 — Order entry and management
 
-- BUY/SELL limit tickets with positive whole-share quantities and USD price inputs.
+- One Trade action opens, or restores, a right-side BUY/SELL limit ticket with positive whole-share quantities and USD price inputs.
 - Time-in-force choices: DAY, GTC, IOC, and FOK.
 - Optional take-profit limit and stop-loss bracket legs.
 - Chart previews and price dragging; existing order changes require explicit confirmation in the ticket.
