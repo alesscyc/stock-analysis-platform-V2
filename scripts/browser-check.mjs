@@ -74,6 +74,35 @@ const rect = async (selector) =>
       `document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect().toJSON()??null`,
     ),
   );
+// Real pointer gesture on the chart; `release: false` leaves the button held.
+const pointerDrag = async (x, from, to, release = true) => {
+  await browser(["mouse", "move", String(x), String(from)]);
+  await browser(["mouse", "down"]);
+  await browser(["mouse", "move", String(x), String(to)]);
+  if (release) await browser(["mouse", "up"]);
+};
+const lineY = async (label) => {
+  const r = await rect(`[aria-label^="Review price: ${label} at "]`);
+  return r && r.top + r.height / 2;
+};
+const ticketValues = async () =>
+  JSON.parse(
+    await evaluate(
+      `[...document.querySelectorAll('.trade-form .form-grid input')].map(i=>i.value)`,
+    ),
+  );
+const chartPixels = `[...document.querySelectorAll('.chart-stage canvas')].map(c=>c.toDataURL())`;
+// Chart canvases repaint asynchronously (crosshair, rAF); wait until two reads match.
+const stablePixels = async () => {
+  let last = await evaluate(chartPixels);
+  for (let i = 0; i < 50; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    const next = await evaluate(chartPixels);
+    if (next === last) return next;
+    last = next;
+  }
+  throw new Error("Chart canvases never settled");
+};
 const sample = JSON.parse(
   await readFile("frontend/public/demo/NVDA.json", "utf8"),
 );
@@ -967,6 +996,153 @@ try {
     `JSON.parse(localStorage.getItem(${JSON.stringify(paperKey)})).startingCash===25000`,
   );
   await browser(["click", ".modal-header button"]);
+  {
+    // Order line dragging: grab lines away from their price buttons.
+    await click("Trade");
+    await browser(["find", "label", "Limit price · USD", "fill", "130"]);
+    await browser(["check", ".check-row input"]);
+    await browser(["find", "label", "Take-profit · USD", "fill", "130"]);
+    await browser(["find", "label", "Stop-loss · USD", "fill", "130"]);
+    await wait(
+      `document.querySelector('[aria-label^="Review price: PREVIEW SL at 130.00"]')!==null`,
+    );
+    const overlay = await rect(".chart-overlays"),
+      x = Math.round(overlay.left + overlay.width / 2),
+      y0 = await lineY("PREVIEW LIMIT");
+    // Exact tie: LIMIT, TP and SL coincide; the topmost (SL) line wins.
+    await browser(["mouse", "move", String(x), String(Math.round(y0))]);
+    const pixels = await stablePixels();
+    await pointerDrag(x, Math.round(y0), Math.round(y0) + 40, false);
+    await wait(
+      `!document.querySelector('[aria-label^="Review price: PREVIEW SL at 130.00"]')`,
+    );
+    assert.deepEqual(
+      (await ticketValues()).slice(1),
+      ["130", "130", "130"],
+      "Line drag previews without committing",
+    );
+    await browser(["mouse", "up"]);
+    let [, limit, tp, sl] = await ticketValues();
+    assert.deepEqual([limit, tp], ["130", "130"]);
+    assert.ok(Number(sl) < 130, `SL line drag committed: ${sl}`);
+    assert.equal(
+      await stablePixels(),
+      pixels,
+      "Chart must not pan during line drag",
+    );
+    // Overlap: SL 6px below LIMIT/TP; pointer nearer TP selects TP (topmost of the LIMIT/TP tie).
+    await pointerDrag(
+      x,
+      Math.round(await lineY("PREVIEW SL")),
+      Math.round(y0 + 6),
+    );
+    const ySL = await lineY("PREVIEW SL"),
+      press = Math.ceil(ySL - 5);
+    assert.ok(
+      Math.abs(press - y0) < Math.abs(press - ySL) &&
+        Math.abs(press - ySL) <= 5,
+      `Overlap setup: ${JSON.stringify({ y0, ySL, press })}`,
+    );
+    [, , , sl] = await ticketValues();
+    await pointerDrag(x, press, press - 40);
+    [, limit, tp] = await ticketValues();
+    assert.equal(limit, "130");
+    assert.ok(Number(tp) > 130, `TP line drag committed: ${tp}`);
+    assert.equal((await ticketValues())[3], sl, "SL unchanged");
+    // Entry line moves alone; sibling exits stay.
+    await pointerDrag(x, Math.round(y0), Math.round(y0) - 20);
+    const moved = await ticketValues();
+    assert.ok(Number(moved[1]) > 130, `LIMIT line drag committed: ${moved}`);
+    assert.deepEqual(moved.slice(2), [tp, sl]);
+    // Fault injection only: a mouse cannot produce a real pointercancel, so
+    // this checks the handler, not a browser-initiated cancel.
+    const yLimit = Math.round(await lineY("PREVIEW LIMIT"));
+    await pointerDrag(x, yLimit, yLimit + 30, false);
+    await evaluate(
+      `document.elementFromPoint(${x},${yLimit + 30}).dispatchEvent(new PointerEvent('pointercancel',{bubbles:true,pointerId:1}))`,
+    );
+    await browser(["mouse", "up"]);
+    assert.deepEqual(await ticketValues(), moved);
+    // Active drawing tool keeps priority over line dragging.
+    const drawingsKey = `northstar.drawings.${JSON.parse(await evaluate(`document.querySelector('h1').textContent`))}`,
+      drawingCount = async () =>
+        JSON.parse(
+          (await evaluate(
+            `JSON.parse(localStorage.getItem(${JSON.stringify(drawingsKey)})||'[]').length`,
+          )) || "0",
+        );
+    const drawingsBefore = await drawingCount();
+    await click("Horizontal line");
+    await pointerDrag(x, yLimit, yLimit);
+    await wait(
+      `JSON.parse(localStorage.getItem(${JSON.stringify(drawingsKey)})||'[]').length===${drawingsBefore + 1}`,
+    );
+    assert.deepEqual(await ticketValues(), moved);
+    // A saved drawing on an order line stays selectable and deletable.
+    await pointerDrag(x, yLimit, yLimit);
+    await wait(`document.querySelector('.drawing-shape circle')!==null`);
+    await browser(["press", "Delete"]);
+    await wait(
+      `JSON.parse(localStorage.getItem(${JSON.stringify(drawingsKey)})||'[]').length===${drawingsBefore}`,
+    );
+    assert.deepEqual(await ticketValues(), moved, "Drawing click edits no price");
+    // Dragging past the plot edge keeps the gesture (the line leaves view);
+    // release commits, and panning and later drags still work.
+    const plotTop = Math.round((await rect(".chart-overlays")).top);
+    await pointerDrag(x, yLimit, plotTop - 10);
+    const outside = await ticketValues();
+    assert.ok(
+      Number(outside[1]) > Number(moved[1]),
+      `Off-plot LIMIT drag committed: ${outside}`,
+    );
+    assert.deepEqual(outside.slice(2), moved.slice(2));
+    const hitYs = JSON.parse(
+        await evaluate(
+          `[...document.querySelectorAll('.order-line-hit')].map(r=>{const b=r.getBoundingClientRect();return b.top+b.height/2})`,
+        ),
+      ),
+      panY = [0.2, 0.5, 0.8]
+        .map((f) => Math.round(overlay.top + (overlay.height - 25) * f))
+        .find((y) => hitYs.every((h) => Math.abs(h - y) > 20));
+    assert.ok(panY, `No empty chart row to pan: ${hitYs}`);
+    await browser(["mouse", "move", String(x), String(panY)]);
+    const beforePan = await stablePixels();
+    await browser(["mouse", "down"]);
+    for (const dx of [50, 100, 150])
+      await browser(["mouse", "move", String(x + dx), String(panY)]);
+    await browser(["mouse", "up"]);
+    await browser(["mouse", "move", String(x), String(panY)]);
+    assert.notEqual(await stablePixels(), beforePan, "Chart pans after off-plot drag");
+    const yTP = Math.round(await lineY("PREVIEW TP"));
+    await pointerDrag(x, yTP, yTP - 20);
+    const next = await ticketValues();
+    assert.ok(Number(next[2]) > Number(outside[2]), `Next TP drag: ${next}`);
+    assert.deepEqual([next[1], next[3]], [outside[1], outside[3]]);
+    assert.equal((await paper()).orders.length, 0, "Dragging never submits");
+    await click("Cancel");
+    // Manageable working order line opens a modification ticket.
+    quotePrice = 200;
+    await click("Trade");
+    await browser(["find", "label", "Limit price · USD", "fill", "130"]);
+    await click("Review order");
+    await click("Place Paper Order");
+    await wait(
+      `JSON.parse(localStorage.getItem(${JSON.stringify(paperKey)})).orders.length===1&&!document.querySelector('.trade-panel')`,
+    );
+    const yOrder = Math.round(await lineY("BUY 1 · LMT"));
+    await pointerDrag(x, yOrder, yOrder - 30);
+    await wait(
+      `document.querySelector('.trade-panel h2')?.textContent==='Review order modification'`,
+    );
+    assert.ok(Number((await ticketValues())[1]) > 130);
+    assert.equal((await paper()).orders[0].limitPrice, 130);
+    // The orders panel also lists a working-order Cancel button.
+    await browser(["click", ".trade-panel .dialog-actions .button:not(.primary)"]);
+    assert.equal(liveWrites, 0);
+    console.log(
+      "PASS: dragging draft and working order lines previews, picks nearest/topmost, yields to drawing tools, and never submits.",
+    );
+  }
   await browser([
     "find",
     "role",

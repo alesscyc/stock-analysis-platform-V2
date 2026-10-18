@@ -492,25 +492,7 @@ export default function StockChart({
           aria-label={tx(lang, en, zh)}
           style={{ cursor: "ns-resize" }}
           onKeyDown={(e) => nudgePreview(e, exit, current)}
-          onPointerDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            e.currentTarget.setPointerCapture(e.pointerId);
-            setDrag({ order: exit, price: current });
-          }}
-          onPointerMove={(e) => {
-            if (drag?.order.id !== exit.id) return;
-            const next = pointerPrice(e);
-            if (next) setDrag({ order: exit, price: next });
-          }}
-          onPointerUp={(e) => {
-            if (drag?.order.id !== exit.id) return;
-            e.stopPropagation();
-            setDrag(null);
-            if (Math.abs(drag.price - current) >= 0.005)
-              onOrderEdit(exit, drag.price);
-          }}
-          onPointerCancel={() => setDrag(null)}
+          onPointerDown={(e) => startDrag(e, exit, current)}
         >
           <title>{tx(lang, en, zh)}</title>
           <rect
@@ -528,9 +510,36 @@ export default function StockChart({
         </g>
       );
     });
+  // The overlay SVG owns the captured gesture, so a handle that unmounts
+  // mid-drag (e.g. its line scrolled out of the plot) cannot strand it.
+  const startDrag = (e, order, price) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.ownerSVGElement.setPointerCapture(e.pointerId);
+    setDrag({ order, price, from: price });
+  };
+  const dragHandlers = {
+    onPointerMove: (e) => {
+      if (!drag) return;
+      const next = pointerPrice(e);
+      if (next) setDrag({ ...drag, price: next });
+    },
+    onPointerUp: (e) => {
+      if (!drag || !e.currentTarget.hasPointerCapture(e.pointerId)) return;
+      setDrag(null);
+      if (Math.abs(drag.price - drag.from) >= 0.005)
+        onOrderEdit(drag.order, drag.price);
+    },
+    // Interrupted gestures (cancel, lost capture) commit nothing.
+    onPointerCancel: () => setDrag(null),
+    onLostPointerCapture: () => setDrag(null),
+  };
+  // Editable lines rendered this pass, in stacking order (last is topmost).
+  const lineHits = [];
   const line = (price, label, color, id, order, dashed = true) => {
     const y = candleRef.current?.priceToCoordinate(price);
     if (y == null || y < 0 || y > size.height - 25) return null;
+    if (order) lineHits.push({ id, y, order, price });
     const labelX = order?.previewField ? 18 : Math.max(0, width - 245);
     return (
       <g key={id}>
@@ -569,45 +578,7 @@ export default function StockChart({
               : undefined
           }
           style={{ cursor: order ? "ns-resize" : "default" }}
-          onPointerDown={
-            order
-              ? (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  setDrag({ order, price });
-                }
-              : undefined
-          }
-          onPointerMove={
-            order
-              ? (e) => {
-                  if (!drag || drag.order.id !== order.id) return;
-                  const next = pointerPrice(e);
-                  if (next) setDrag({ order, price: next });
-                }
-              : undefined
-          }
-          onPointerUp={
-            order
-              ? (e) => {
-                  if (!drag) return;
-                  e.stopPropagation();
-                  const next = drag.price;
-                  setDrag(null);
-                  if (
-                    Math.abs(
-                      next -
-                        (order.type === "STP"
-                          ? order.stopPrice
-                          : order.limitPrice),
-                    ) >= 0.005
-                  )
-                    onOrderEdit(order, next);
-                }
-              : undefined
-          }
-          onPointerCancel={() => setDrag(null)}
+          onPointerDown={order ? (e) => startDrag(e, order, price) : undefined}
         >
           <rect
             x={labelX}
@@ -647,6 +618,84 @@ export default function StockChart({
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  // Built before the hit areas below so their stacking order is known.
+  const priceLines = (
+    <>
+      {positions
+        .filter((p) => p.symbol === symbol)
+        .map((p, i) =>
+          line(
+            p.averageCost,
+            `${tx(lang, "POSITION", "持倉")} ${p.quantity}`,
+            "#78bcf1",
+            `position-${i}`,
+          ),
+        )}
+      {orders
+        .filter(
+          (o) =>
+            o.symbol === symbol &&
+            ![
+              "filled",
+              "cancelled",
+              "expired",
+              "Filled",
+              "Cancelled",
+              "ApiCancelled",
+              "Inactive",
+            ].includes(o.status),
+        )
+        .map((o) =>
+          line(
+            drag?.order.id === o.id
+              ? drag.price
+              : o.type === "STP"
+                ? o.stopPrice
+                : o.limitPrice,
+            `${o.side} ${o.quantity} · ${o.bracketRole || o.type || "LMT"}${o.status === "held" ? " · HELD" : ""}`,
+            o.side === "BUY" ? "#66ddba" : "#f4ae7c",
+            o.id,
+            o.manageable === false ? null : o,
+          ),
+        )}
+      {preview?.symbol === symbol &&
+        [
+          ["limitPrice", "LIMIT"],
+          ["takeProfit", "TP"],
+          ["stopLoss", "SL"],
+          ["stopPrice", "STOP"],
+        ]
+          .filter(
+            ([key]) =>
+              Number(preview[key]) > 0 ||
+              drag?.order.id === `preview-${key}`,
+          )
+          .map(([key, label]) =>
+            line(
+              drag?.order.id === `preview-${key}`
+                ? drag.price
+                : Number(preview[key]),
+              `${tx(lang, "PREVIEW", "預覽")} ${label}`,
+              "#d9c588",
+              `preview-${key}`,
+              {
+                id: `preview-${key}`,
+                previewField: key,
+                symbol: preview.symbol,
+                side: preview.side,
+                quantity: preview.quantity,
+                type:
+                  key === "stopLoss" || key === "stopPrice"
+                    ? "STP"
+                    : "LMT",
+                limitPrice: Number(preview[key]),
+                stopPrice: Number(preview[key]),
+                exits: key === "limitPrice" && !preview.editing,
+              },
+            ),
+          )}
+    </>
+  );
   return (
     <section
       className="chart-section"
@@ -838,6 +887,7 @@ export default function StockChart({
           width={size.width}
           height={size.height}
           style={{ overflow: "hidden" }}
+          {...dragHandlers}
         >
           <defs>
             <clipPath id="plot-clip">
@@ -940,6 +990,29 @@ export default function StockChart({
                 </g>
               );
             })}
+            {/* Line hit areas sit below drawings so saved drawings stay selectable. */}
+            {tool === "cursor" &&
+              lineHits.map((hit) => (
+                <rect
+                  key={`hit-${hit.id}`}
+                  className="order-line-hit"
+                  x="0"
+                  y={hit.y - 5}
+                  width={width}
+                  height="10"
+                  fill="transparent"
+                  style={{ cursor: "ns-resize" }}
+                  onPointerDown={(e) => {
+                    // Nearest line wins; ties go to the topmost (last rendered).
+                    const y =
+                      e.clientY - container.current.getBoundingClientRect().top;
+                    const nearest = lineHits.reduce((best, h) =>
+                      Math.abs(h.y - y) <= Math.abs(best.y - y) ? h : best,
+                    );
+                    startDrag(e, nearest.order, nearest.price);
+                  }}
+                />
+              ))}
             {drawings.map((d) => renderDrawing(d))}
             {pending &&
               cursorPoint &&
@@ -947,79 +1020,7 @@ export default function StockChart({
                 { id: "pending", type: tool, points: [pending, cursorPoint] },
                 true,
               )}
-            {positions
-              .filter((p) => p.symbol === symbol)
-              .map((p, i) =>
-                line(
-                  p.averageCost,
-                  `${tx(lang, "POSITION", "持倉")} ${p.quantity}`,
-                  "#78bcf1",
-                  `position-${i}`,
-                ),
-              )}
-            {orders
-              .filter(
-                (o) =>
-                  o.symbol === symbol &&
-                  ![
-                    "filled",
-                    "cancelled",
-                    "expired",
-                    "Filled",
-                    "Cancelled",
-                    "ApiCancelled",
-                    "Inactive",
-                  ].includes(o.status),
-              )
-              .map((o) =>
-                line(
-                  drag?.order.id === o.id
-                    ? drag.price
-                    : o.type === "STP"
-                      ? o.stopPrice
-                      : o.limitPrice,
-                  `${o.side} ${o.quantity} · ${o.bracketRole || o.type || "LMT"}${o.status === "held" ? " · HELD" : ""}`,
-                  o.side === "BUY" ? "#66ddba" : "#f4ae7c",
-                  o.id,
-                  o.manageable === false ? null : o,
-                ),
-              )}
-            {preview?.symbol === symbol &&
-              [
-                ["limitPrice", "LIMIT"],
-                ["takeProfit", "TP"],
-                ["stopLoss", "SL"],
-                ["stopPrice", "STOP"],
-              ]
-                .filter(
-                  ([key]) =>
-                    Number(preview[key]) > 0 ||
-                    drag?.order.id === `preview-${key}`,
-                )
-                .map(([key, label]) =>
-                  line(
-                    drag?.order.id === `preview-${key}`
-                      ? drag.price
-                      : Number(preview[key]),
-                    `${tx(lang, "PREVIEW", "預覽")} ${label}`,
-                    "#d9c588",
-                    `preview-${key}`,
-                    {
-                      id: `preview-${key}`,
-                      previewField: key,
-                      symbol: preview.symbol,
-                      side: preview.side,
-                      quantity: preview.quantity,
-                      type:
-                        key === "stopLoss" || key === "stopPrice"
-                          ? "STP"
-                          : "LMT",
-                      limitPrice: Number(preview[key]),
-                      stopPrice: Number(preview[key]),
-                      exits: key === "limitPrice" && !preview.editing,
-                    },
-                  ),
-                )}
+            {priceLines}
           </g>
         </svg>
         {(!candles.length || loading) && (

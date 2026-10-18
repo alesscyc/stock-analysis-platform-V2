@@ -32,4 +32,5 @@ Preconditions: default isolated demo launch and Doctor pass; English UI, NVDA ca
 - Indicators is a native `summary`, not a button. Checkbox state and storage prove preference persistence; inspect screenshots for actual overlay rendering.
 - Static preview aggregates fictional bars for weekly/monthly views. It does not prove provider interval data.
 - Drawings are per symbol; indicator preferences are shared within origin. Do not erase user storage.
+- Order price lines carry invisible 10px drag hit areas (`.order-line-hit`) only in Select / pan mode; they sit below saved drawings. Line dragging is covered in `features/paper.md` (`paper-chart-drag`).
 - Preserve TradingView attribution. A canvas existing alone does not prove chart correctness.

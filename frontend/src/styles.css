@@ -1345,7 +1345,8 @@ pre {
   pointer-events: visiblePainted;
   cursor: pointer;
 }
-.order-price-handle {
+.order-price-handle,
+.order-line-hit {
   pointer-events: all;
   touch-action: none;
 }
